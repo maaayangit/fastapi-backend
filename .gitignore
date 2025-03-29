@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+venv/
+.env
+schedule.db
+log.txt
