@@ -1,0 +1,13 @@
+name: Login Check Every 10 Minutes
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'  # UTCで10分おき
+  workflow_dispatch:        # 手動実行もできるように
+
+jobs:
+  login-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call login-check API
+        run: curl -s https://fastapi-backend-dot2.onrender.com/login-check
