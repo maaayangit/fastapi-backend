@@ -112,9 +112,13 @@ def login_check():
 SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/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"
 
 def notify_slack(message: str):
+    print("📣 Slackに通知中...")
     payload = {
         "text": message
     }
     response = requests.post(SLACK_WEBHOOK_URL, json=payload)
+    print("📨 Slack通知ステータス:", response.status_code)
     if response.status_code != 200:
         print("Slack通知失敗:", response.text)
+    else:
+        print("✅ Slack通知成功！")
