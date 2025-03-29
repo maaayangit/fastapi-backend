@@ -109,7 +109,7 @@ def login_check():
 
 
 
-SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/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"
+SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/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"
 
 def notify_slack(message: str):
     print("📣 Slackに通知中...")
