@@ -15,6 +15,7 @@ load_dotenv()
 sqlite_file_name = os.path.join(os.path.dirname(__file__), "schedule.db")
 engine = create_engine(f"sqlite:///{sqlite_file_name}", echo=True)
 
+# CORS設定
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://morning-check-app.vercel.app"],
@@ -23,12 +24,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# DB起動時にテーブル作成
 @app.on_event("startup")
 def on_startup():
     print("✅ テーブル作成処理開始")
     SQLModel.metadata.create_all(engine)
     print("✅ テーブル作成完了")
 
+# スケジュール登録用モデル
 class ScheduleItem(BaseModel):
     user_id: int
     username: str
@@ -38,6 +41,7 @@ class ScheduleItem(BaseModel):
     is_holiday: bool
     work_code: Optional[str] = None
 
+# 勤務表のCSVアップロード
 @app.post("/upload-schedule")
 async def upload_schedule(items: List[ScheduleItem]):
     with Session(engine) as session:
@@ -60,6 +64,7 @@ async def upload_schedule(items: List[ScheduleItem]):
         session.commit()
     return {"message": f"{len(items)} 件のスケジュールを保存しました"}
 
+# 勤務表一覧取得
 @app.get("/schedules")
 def get_schedules(date: Optional[str] = Query(None)):
     with Session(engine) as session:
@@ -68,6 +73,7 @@ def get_schedules(date: Optional[str] = Query(None)):
             statement = statement.where(Schedule.date == date)
         return session.exec(statement).all()
 
+# ログインチェック
 @app.get("/login-check")
 def login_check():
     JST = timezone(timedelta(hours=9))
@@ -84,7 +90,6 @@ def login_check():
                 continue
             expected_dt = datetime.strptime(f"{item.date} {item.expected_login_time}", "%Y-%m-%d %H:%M").replace(tzinfo=JST)
 
-            # 勤務指定チェック
             if item.work_code == "★07A":
                 if expected_dt >= expected_dt.replace(hour=7, minute=0):
                     failed_logins.append({
@@ -116,6 +121,7 @@ def login_check():
 
         return {"missed_logins": failed_logins}
 
+# Slack通知
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 def notify_slack(message: str):
     response = requests.post(SLACK_WEBHOOK_URL, json={"text": message})
@@ -124,6 +130,7 @@ def notify_slack(message: str):
     else:
         print("✅ Slack通知成功！")
 
+# 出勤予定時刻の更新（計画登録）
 @app.post("/update-expected-login")
 async def update_expected_login(request: Request):
     data = await request.json()
@@ -152,15 +159,18 @@ async def update_expected_login(request: Request):
         session.commit()
     return {"message": "出勤予定を更新しました"}
 
+# 出勤予定の操作ログ登録
 @app.post("/log-plan")
 def log_plan_entry(log: PlanLog):
     with Session(engine) as session:
-        log.registered_at = datetime.now() 
+        log.registered_at = datetime.now()
         session.add(log)
         session.commit()
         session.refresh(log)
         return {"message": "出勤予定ログを保存しました", "log": log}
 
+# ✅ 出勤予定ログ取得（社員番号に基づく）
+@app.get("/log-plan")
 def get_plan_logs(user_id: Optional[int] = None, date: Optional[str] = None):
     with Session(engine) as session:
         query = select(PlanLog)
@@ -170,6 +180,7 @@ def get_plan_logs(user_id: Optional[int] = None, date: Optional[str] = None):
             query = query.where(PlanLog.date == date)
         return session.exec(query).all()
 
+# 勤務指定の取得
 @app.get("/work-code")
 def get_work_code(user_id: int, date: str):
     with Session(engine) as session:
@@ -179,4 +190,3 @@ def get_work_code(user_id: int, date: str):
         if not result:
             return {"work_code": None}
         return {"work_code": result.work_code}
-
