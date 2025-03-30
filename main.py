@@ -161,6 +161,15 @@ def log_plan_entry(log: PlanLog):
         session.refresh(log)
         return {"message": "出勤予定ログを保存しました", "log": log}
 
+def get_plan_logs(user_id: Optional[int] = None, date: Optional[str] = None):
+    with Session(engine) as session:
+        query = select(PlanLog)
+        if user_id:
+            query = query.where(PlanLog.user_id == user_id)
+        if date:
+            query = query.where(PlanLog.date == date)
+        return session.exec(query).all()
+
 @app.get("/work-code")
 def get_work_code(user_id: int, date: str):
     with Session(engine) as session:
