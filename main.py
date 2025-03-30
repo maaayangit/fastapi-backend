@@ -139,14 +139,6 @@ def notify_slack(message: str):
     else:
         print("✅ Slack通知成功！")
 
-# --- PlanLogモデル追加 ---
-class PlanLog(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int
-    date: str
-    expected_login_time: str
-    registered_at: Optional[str] = None
-
 # --- PlanLog API（履歴保存）---
 @app.post("/log-plan")
 def log_plan_entry(log: PlanLog):
