@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta, timezone  # ← これでOK
 import requests
 
 app = FastAPI()
@@ -76,7 +76,9 @@ def get_schedules():
 
 @app.get("/login-check")
 def login_check():
-    now = datetime.now()
+    # login_check の中
+    JST = timezone(timedelta(hours=9))  # ← ここを追加
+    now = datetime.now(JST)             # ← ここを修正
     today_str = now.strftime("%Y-%m-%d")
 
     with Session(engine) as session:
