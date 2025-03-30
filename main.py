@@ -15,6 +15,8 @@ load_dotenv()
 sqlite_file_name = os.path.join(os.path.dirname(__file__), "schedule.db")
 engine = create_engine(f"sqlite:///{sqlite_file_name}", echo=True)
 
+JST = timezone(timedelta(hours=9))  # 日本時間タイムゾーン
+
 # CORS設定
 app.add_middleware(
     CORSMiddleware,
@@ -76,7 +78,6 @@ def get_schedules(date: Optional[str] = Query(None)):
 # ログインチェック
 @app.get("/login-check")
 def login_check():
-    JST = timezone(timedelta(hours=9))
     now = datetime.now(JST)
     today_str = now.strftime("%Y-%m-%d")
     with Session(engine) as session:
@@ -90,22 +91,20 @@ def login_check():
                 continue
             expected_dt = datetime.strptime(f"{item.date} {item.expected_login_time}", "%Y-%m-%d %H:%M").replace(tzinfo=JST)
 
-            if item.work_code == "★07A":
-                if expected_dt >= expected_dt.replace(hour=7, minute=0):
-                    failed_logins.append({
-                        "username": item.username,
-                        "date": item.date,
-                        "reason": f"勤務指定（★07A）より遅い: {item.expected_login_time}"
-                    })
-                    continue
-            elif item.work_code == "★11A":
-                if expected_dt >= expected_dt.replace(hour=11, minute=0):
-                    failed_logins.append({
-                        "username": item.username,
-                        "date": item.date,
-                        "reason": f"勤務指定（★11A）より遅い: {item.expected_login_time}"
-                    })
-                    continue
+            if item.work_code == "★07A" and expected_dt >= expected_dt.replace(hour=7, minute=0):
+                failed_logins.append({
+                    "username": item.username,
+                    "date": item.date,
+                    "reason": f"勤務指定（★07A）より遅い: {item.expected_login_time}"
+                })
+                continue
+            elif item.work_code == "★11A" and expected_dt >= expected_dt.replace(hour=11, minute=0):
+                failed_logins.append({
+                    "username": item.username,
+                    "date": item.date,
+                    "reason": f"勤務指定（★11A）より遅い: {item.expected_login_time}"
+                })
+                continue
 
             if now >= expected_dt and not item.login_time:
                 failed_logins.append({
@@ -159,32 +158,28 @@ async def update_expected_login(request: Request):
         session.commit()
     return {"message": "出勤予定を更新しました"}
 
-# 出勤予定の操作ログ登録
+# 出勤予定ログ登録・更新
 @app.post("/log-plan")
 def log_plan_entry(log: PlanLog):
     with Session(engine) as session:
-        # 同じ user_id ＆ date のレコードがあるか確認
         existing_log = session.exec(
             select(PlanLog).where(PlanLog.user_id == log.user_id, PlanLog.date == log.date)
         ).first()
 
         if existing_log:
-            # 既存のログを上書き
             existing_log.expected_login_time = log.expected_login_time
-            existing_log.registered_at = datetime.now()
+            existing_log.registered_at = datetime.now(JST)
             session.add(existing_log)
             session.commit()
             return {"message": "既存の出勤予定ログを更新しました", "log": existing_log}
         else:
-            # 新規登録
-            log.registered_at = datetime.now()
+            log.registered_at = datetime.now(JST)
             session.add(log)
             session.commit()
             session.refresh(log)
             return {"message": "出勤予定ログを保存しました", "log": log}
 
-
-# ✅ 出勤予定ログ取得（社員番号に基づく）
+# 出勤予定ログ取得
 @app.get("/log-plan")
 def get_plan_logs(user_id: Optional[int] = None, date: Optional[str] = None):
     with Session(engine) as session:
