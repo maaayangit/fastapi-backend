@@ -170,3 +170,14 @@ def get_plan_logs(user_id: Optional[int] = None, date: Optional[str] = None):
         if date:
             query = query.where(PlanLog.date == date)
         return session.exec(query).all()
+
+@app.get("/work-code")
+def get_work_code(user_id: int, date: str):
+    with Session(engine) as session:
+        result = session.exec(
+            select(Schedule).where(Schedule.user_id == user_id, Schedule.date == date)
+        ).first()
+        if not result:
+            return {"work_code": None}
+        return {"work_code": result.work_code}
+
