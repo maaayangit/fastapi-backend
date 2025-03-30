@@ -48,26 +48,40 @@ class ScheduleItem(BaseModel):
 
 
 # 保存処理付き POST API（このあと書き換え）
+from sqlmodel import delete  # ← これを追加するのを忘れずに！
+
 @app.post("/upload-schedule")
 async def upload_schedule(items: List[ScheduleItem]):
     print("✅ 保存処理開始")
     with Session(engine) as session:
+        if not items:
+            return {"message": "スケジュールが空です"}
+
+        # 📌 対象となるすべての日付を取得して、その日付のデータを削除
+        target_dates = set(item.date for item in items)
+        for date in target_dates:
+            session.exec(delete(Schedule).where(Schedule.date == date))
+            print(f"🗑️ {date} のスケジュールを削除")
+
+        # 📌 新しいスケジュールを追加
         for item in items:
             print("📌 追加中:", item)
             schedule = Schedule(
                 user_id=item.user_id,
                 username=item.username,
                 date=item.date,
-                expected_login_time=item.expected_login_time,  # ← 追加！
+                expected_login_time=item.expected_login_time,
                 login_time=item.login_time,
                 is_holiday=item.is_holiday,
-            ) 
-
+                work_code=item.work_code  # ← work_code も忘れずに
+            )
             session.add(schedule)
+
         session.commit()
     print("✅ 保存完了！")
 
     return {"message": f"{len(items)} 件のスケジュールを保存しました"}
+
 
 @app.get("/schedules")
 def get_schedules():
