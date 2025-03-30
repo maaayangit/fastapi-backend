@@ -18,10 +18,7 @@ engine = create_engine(f"sqlite:///{sqlite_file_name}", echo=True)
 # CORS設定
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://morning-check-app.vercel.app"  # ← VercelでのReact公開URLを追加！
-    ],
+    allow_origins=["*"],  # ← すべてのオリジンからのアクセスを許可
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
