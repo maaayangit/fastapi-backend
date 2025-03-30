@@ -163,11 +163,26 @@ async def update_expected_login(request: Request):
 @app.post("/log-plan")
 def log_plan_entry(log: PlanLog):
     with Session(engine) as session:
-        log.registered_at = datetime.now()
-        session.add(log)
-        session.commit()
-        session.refresh(log)
-        return {"message": "出勤予定ログを保存しました", "log": log}
+        # 同じ user_id ＆ date のレコードがあるか確認
+        existing_log = session.exec(
+            select(PlanLog).where(PlanLog.user_id == log.user_id, PlanLog.date == log.date)
+        ).first()
+
+        if existing_log:
+            # 既存のログを上書き
+            existing_log.expected_login_time = log.expected_login_time
+            existing_log.registered_at = datetime.now()
+            session.add(existing_log)
+            session.commit()
+            return {"message": "既存の出勤予定ログを更新しました", "log": existing_log}
+        else:
+            # 新規登録
+            log.registered_at = datetime.now()
+            session.add(log)
+            session.commit()
+            session.refresh(log)
+            return {"message": "出勤予定ログを保存しました", "log": log}
+
 
 # ✅ 出勤予定ログ取得（社員番号に基づく）
 @app.get("/log-plan")
