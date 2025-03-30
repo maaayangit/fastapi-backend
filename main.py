@@ -8,8 +8,10 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, timedelta, timezone  # ← これでOK
 import requests
+from dotenv import load_dotenv  # ← これを追加
 
 app = FastAPI()
+load_dotenv()  # ← これで .env を読み込み
 
 # ✅★ ここに追加！
 sqlite_file_name = os.path.join(os.path.dirname(__file__), "schedule.db")
@@ -18,7 +20,9 @@ engine = create_engine(f"sqlite:///{sqlite_file_name}", echo=True)
 # CORS設定
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ← すべてのオリジンからのアクセスを許可
+    allow_origins=[
+        "https://morning-check-app.vercel.app",  # ← React をホスティングしてる Vercel の URL
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -109,7 +113,7 @@ def login_check():
 
 
 
-SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/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"
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 
 def notify_slack(message: str):
     print("📣 Slackに通知中...")
