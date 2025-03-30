@@ -96,6 +96,28 @@ def login_check():
 
             expected_dt = datetime.strptime(f"{item.date} {item.expected_login_time}", "%Y-%m-%d %H:%M").replace(tzinfo=JST)
 
+            # ★ 勤務指定チェック
+            if item.work_code == "★07A":
+                limit_dt = datetime.strptime(f"{item.date} 07:00", "%Y-%m-%d %H:%M").replace(tzinfo=JST)
+                if expected_dt >= limit_dt:
+                    failed_logins.append({
+                        "username": item.username,
+                        "date": item.date,
+                        "reason": f"予定時刻が勤務指定（★07A）の基準より遅い: {item.expected_login_time}"
+                    })
+                    continue
+
+            elif item.work_code == "★11A":
+                limit_dt = datetime.strptime(f"{item.date} 11:00", "%Y-%m-%d %H:%M").replace(tzinfo=JST)
+                if expected_dt >= limit_dt:
+                    failed_logins.append({
+                        "username": item.username,
+                        "date": item.date,
+                        "reason": f"予定時刻が勤務指定（★11A）の基準より遅い: {item.expected_login_time}"
+                    })
+                    continue
+
+            # 未ログインチェック
             if now >= expected_dt and not item.login_time:
                 failed_logins.append({
                     "username": item.username,
@@ -104,13 +126,12 @@ def login_check():
                 })
 
         if failed_logins:
-            message_lines = ["🚨 ログイン遅れユーザー（予定時刻超過）"]
+            message_lines = ["🚨 ログイン遅れユーザー（予定時刻超過 or 勤務指定違反）"]
             for entry in failed_logins:
                 message_lines.append(f"{entry['username']}（{entry['date']}）: {entry['reason']}")
             notify_slack("\n".join(message_lines))
 
         return {"missed_logins": failed_logins}
-
 
 
 
