@@ -41,9 +41,10 @@ class ScheduleItem(BaseModel):
     user_id: int
     username: str
     date: str
-    expected_login_time: Optional[str]  # ← 追加！
+    expected_login_time: Optional[str]
     login_time: Optional[str]
     is_holiday: bool
+    work_code: Optional[str] = None  # ← これを追加！
 
 
 # 保存処理付き POST API（このあと書き換え）
