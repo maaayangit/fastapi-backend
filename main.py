@@ -161,16 +161,6 @@ def log_plan_entry(log: PlanLog):
         session.refresh(log)
         return {"message": "出勤予定ログを保存しました", "log": log}
 
-@app.post("/log-plan")
-def log_plan_entry(log: PlanLog):
-    with Session(engine) as session:
-        log.registered_at = datetime.now()  # ← 文字列ではなく datetime オブジェクトにする！
-        session.add(log)
-        session.commit()
-        session.refresh(log)
-        return {"message": "出勤予定ログを保存しました", "log": log}
-
-
 @app.get("/work-code")
 def get_work_code(user_id: int, date: str):
     with Session(engine) as session:
