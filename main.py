@@ -71,11 +71,12 @@ def get_schedules():
         results = session.exec(statement).all()
         return results
 
+from datetime import datetime, timezone, timedelta
+
 @app.get("/login-check")
 def login_check():
-    # login_check の中
-    JST = timezone(timedelta(hours=9))  # ← ここを追加
-    now = datetime.now(JST)             # ← ここを修正
+    JST = timezone(timedelta(hours=9))
+    now = datetime.now(JST)
     today_str = now.strftime("%Y-%m-%d")
 
     with Session(engine) as session:
@@ -86,9 +87,9 @@ def login_check():
 
         for item in records:
             if not item.expected_login_time:
-                continue  # 予定がなければスキップ
+                continue
 
-            expected_dt = datetime.strptime(f"{item.date} {item.expected_login_time}", "%Y-%m-%d %H:%M")
+            expected_dt = datetime.strptime(f"{item.date} {item.expected_login_time}", "%Y-%m-%d %H:%M").replace(tzinfo=JST)
 
             if now >= expected_dt and not item.login_time:
                 failed_logins.append({
@@ -97,7 +98,6 @@ def login_check():
                     "reason": f"未ログイン（予定時刻: {item.expected_login_time}）"
                 })
 
-        # Slack通知
         if failed_logins:
             message_lines = ["🚨 ログイン遅れユーザー（予定時刻超過）"]
             for entry in failed_logins:
@@ -105,6 +105,7 @@ def login_check():
             notify_slack("\n".join(message_lines))
 
         return {"missed_logins": failed_logins}
+
 
 
 
