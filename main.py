@@ -1,6 +1,6 @@
 import os
 from sqlmodel import SQLModel, Session, create_engine, select, Field
-from models import Schedule,planLog  # ← モデルを読み込み
+from models import Schedule,PlanLog  # ← モデルを読み込み
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
