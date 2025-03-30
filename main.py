@@ -93,6 +93,7 @@ def login_check():
 
             if item.work_code == "★07A" and expected_dt >= expected_dt.replace(hour=7, minute=0):
                 failed_logins.append({
+                    "user_id": item.user_id,
                     "username": item.username,
                     "date": item.date,
                     "reason": f"勤務指定（★07A）より遅い: {item.expected_login_time}"
@@ -100,6 +101,7 @@ def login_check():
                 continue
             elif item.work_code == "★11A" and expected_dt >= expected_dt.replace(hour=11, minute=0):
                 failed_logins.append({
+                    "user_id": item.user_id,
                     "username": item.username,
                     "date": item.date,
                     "reason": f"勤務指定（★11A）より遅い: {item.expected_login_time}"
@@ -108,6 +110,7 @@ def login_check():
 
             if now >= expected_dt and not item.login_time:
                 failed_logins.append({
+                    "user_id": item.user_id,
                     "username": item.username,
                     "date": item.date,
                     "reason": f"未ログイン（予定時刻: {item.expected_login_time}）"
@@ -115,7 +118,7 @@ def login_check():
 
         if failed_logins:
             notify_slack("\n".join(
-                [f"{entry['username']}（{entry['date']}）: {entry['reason']}" for entry in failed_logins]
+                [f"{entry['user_id']}（{entry['date']}）: {entry['reason']}" for entry in failed_logins]
             ))
 
         return {"missed_logins": failed_logins}
