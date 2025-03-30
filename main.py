@@ -9,6 +9,7 @@ from typing import List, Optional
 from datetime import datetime, timedelta, timezone  # ← これでOK
 import requests
 from dotenv import load_dotenv  # ← これを追加
+from fastapi import Query
 
 app = FastAPI()
 load_dotenv()  # ← これで .env を読み込み
@@ -82,15 +83,19 @@ async def upload_schedule(items: List[ScheduleItem]):
 
     return {"message": f"{len(items)} 件のスケジュールを保存しました"}
 
-
 @app.get("/schedules")
-def get_schedules():
+def get_schedules(date: Optional[str] = Query(None)):
     with Session(engine) as session:
-        statement = select(Schedule)
+        if date:
+            # 日付が指定されたらその日のデータだけ取得
+            statement = select(Schedule).where(Schedule.date == date)
+        else:
+            # 指定がない場合は全件取得（今まで通り）
+            statement = select(Schedule)
         results = session.exec(statement).all()
         return results
 
-from datetime import datetime, timezone, timedelta
+
 
 @app.get("/login-check")
 def login_check():
