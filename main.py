@@ -155,7 +155,7 @@ async def update_expected_login(request: Request):
 @app.post("/log-plan")
 def log_plan_entry(log: PlanLog):
     with Session(engine) as session:
-        log.registered_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log.registered_at = datetime.now() 
         session.add(log)
         session.commit()
         session.refresh(log)
