@@ -1,43 +1,39 @@
 import os
-from sqlmodel import SQLModel, Session, create_engine
-from sqlmodel import select
-from models import Schedule  # ← モデルを読み込み
-from fastapi import FastAPI
+from sqlmodel import SQLModel, Session, create_engine, select, Field
+from models import Schedule,planLog  # ← モデルを読み込み
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime, timedelta, timezone  # ← これでOK
+from datetime import datetime, timedelta, timezone
 import requests
-from dotenv import load_dotenv  # ← これを追加
-from fastapi import Query
+from dotenv import load_dotenv
+from sqlmodel import delete
 
+# --- DB設定 ---
 app = FastAPI()
-load_dotenv()  # ← これで .env を読み込み
+load_dotenv()
 
-# ✅★ ここに追加！
 sqlite_file_name = os.path.join(os.path.dirname(__file__), "schedule.db")
 engine = create_engine(f"sqlite:///{sqlite_file_name}", echo=True)
 
-# CORS設定
+# --- CORS ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://morning-check-app.vercel.app",  # ← React をホスティングしてる Vercel の URL
-    ],
+    allow_origins=["https://morning-check-app.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
-# DBの起動時テーブル作成
+# --- テーブル作成 ---
 @app.on_event("startup")
 def on_startup():
     print("✅ テーブル作成処理開始")
     SQLModel.metadata.create_all(engine)
     print("✅ テーブル作成完了")
 
-# API用の受け取りデータ形式
+# --- Schedule API ---
 class ScheduleItem(BaseModel):
     user_id: int
     username: str
@@ -45,28 +41,19 @@ class ScheduleItem(BaseModel):
     expected_login_time: Optional[str]
     login_time: Optional[str]
     is_holiday: bool
-    work_code: Optional[str] = None  # ← これを追加！
-
-
-# 保存処理付き POST API（このあと書き換え）
-from sqlmodel import delete  # ← これを追加するのを忘れずに！
+    work_code: Optional[str] = None
 
 @app.post("/upload-schedule")
 async def upload_schedule(items: List[ScheduleItem]):
-    print("✅ 保存処理開始")
     with Session(engine) as session:
         if not items:
             return {"message": "スケジュールが空です"}
 
-        # 📌 対象となるすべての日付を取得して、その日付のデータを削除
         target_dates = set(item.date for item in items)
         for date in target_dates:
             session.exec(delete(Schedule).where(Schedule.date == date))
-            print(f"🗑️ {date} のスケジュールを削除")
 
-        # 📌 新しいスケジュールを追加
         for item in items:
-            print("📌 追加中:", item)
             schedule = Schedule(
                 user_id=item.user_id,
                 username=item.username,
@@ -74,29 +61,23 @@ async def upload_schedule(items: List[ScheduleItem]):
                 expected_login_time=item.expected_login_time,
                 login_time=item.login_time,
                 is_holiday=item.is_holiday,
-                work_code=item.work_code  # ← work_code も忘れずに
+                work_code=item.work_code
             )
             session.add(schedule)
 
         session.commit()
-    print("✅ 保存完了！")
-
     return {"message": f"{len(items)} 件のスケジュールを保存しました"}
 
 @app.get("/schedules")
 def get_schedules(date: Optional[str] = Query(None)):
     with Session(engine) as session:
+        statement = select(Schedule)
         if date:
-            # 日付が指定されたらその日のデータだけ取得
-            statement = select(Schedule).where(Schedule.date == date)
-        else:
-            # 指定がない場合は全件取得（今まで通り）
-            statement = select(Schedule)
+            statement = statement.where(Schedule.date == date)
         results = session.exec(statement).all()
         return results
 
-
-
+# --- ログインチェック ---
 @app.get("/login-check")
 def login_check():
     JST = timezone(timedelta(hours=9))
@@ -115,7 +96,6 @@ def login_check():
 
             expected_dt = datetime.strptime(f"{item.date} {item.expected_login_time}", "%Y-%m-%d %H:%M").replace(tzinfo=JST)
 
-            # ★ 勤務指定チェック
             if item.work_code == "★07A":
                 limit_dt = datetime.strptime(f"{item.date} 07:00", "%Y-%m-%d %H:%M").replace(tzinfo=JST)
                 if expected_dt >= limit_dt:
@@ -125,7 +105,6 @@ def login_check():
                         "reason": f"予定時刻が勤務指定（★07A）の基準より遅い: {item.expected_login_time}"
                     })
                     continue
-
             elif item.work_code == "★11A":
                 limit_dt = datetime.strptime(f"{item.date} 11:00", "%Y-%m-%d %H:%M").replace(tzinfo=JST)
                 if expected_dt >= limit_dt:
@@ -136,7 +115,6 @@ def login_check():
                     })
                     continue
 
-            # 未ログインチェック
             if now >= expected_dt and not item.login_time:
                 failed_logins.append({
                     "username": item.username,
@@ -145,25 +123,47 @@ def login_check():
                 })
 
         if failed_logins:
-            message_lines = ["🚨 ログイン遅れユーザー（予定時刻超過 or 勤務指定違反）"]
-            for entry in failed_logins:
-                message_lines.append(f"{entry['username']}（{entry['date']}）: {entry['reason']}")
-            notify_slack("\n".join(message_lines))
+            notify_slack("\n".join(
+                [f"{entry['username']}（{entry['date']}）: {entry['reason']}" for entry in failed_logins]
+            ))
 
         return {"missed_logins": failed_logins}
 
-
-
+# --- Slack通知 ---
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 
 def notify_slack(message: str):
-    print("📣 Slackに通知中...")
-    payload = {
-        "text": message
-    }
-    response = requests.post(SLACK_WEBHOOK_URL, json=payload)
-    print("📨 Slack通知ステータス:", response.status_code)
+    response = requests.post(SLACK_WEBHOOK_URL, json={"text": message})
     if response.status_code != 200:
         print("Slack通知失敗:", response.text)
     else:
         print("✅ Slack通知成功！")
+
+# --- PlanLogモデル追加 ---
+class PlanLog(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int
+    date: str
+    expected_login_time: str
+    registered_at: Optional[str] = None
+
+# --- PlanLog API（履歴保存）---
+@app.post("/log-plan")
+def log_plan_entry(log: PlanLog):
+    with Session(engine) as session:
+        log.registered_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        session.add(log)
+        session.commit()
+        session.refresh(log)
+        return {"message": "出勤予定ログを保存しました", "log": log}
+
+@app.get("/log-plan")
+def get_plan_logs(user_id: Optional[int] = None, date: Optional[str] = None):
+    with Session(engine) as session:
+        query = select(PlanLog)
+        if user_id:
+            query = query.where(PlanLog.user_id == user_id)
+        if date:
+            query = query.where(PlanLog.date == date)
+        results = session.exec(query).all()
+        return results
