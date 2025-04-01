@@ -91,7 +91,8 @@ def login_check():
     for item in records:
         if not item.get("expected_login_time"):
             continue
-        expected_dt = datetime.strptime(f"{item['date']} {item['expected_login_time']}", "%Y-%m-%d %H:%M").replace(tzinfo=JST)
+        # 「%H:%M:%S」まで対応
+        expected_dt = datetime.strptime(f"{item['date']} {item['expected_login_time']}", "%Y-%m-%d %H:%M:%S").replace(tzinfo=JST)
 
         if item.get("work_code") == "★07A" and expected_dt >= expected_dt.replace(hour=7, minute=0):
             failed_logins.append({"user_id": item["user_id"], "username": item["username"], "date": item["date"], "reason": f"勤務指定（★07A）より遅い: {item['expected_login_time']}"})
