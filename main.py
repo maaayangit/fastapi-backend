@@ -32,7 +32,9 @@ app = FastAPI()
 # CORS設定（Reactアプリと連携）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://morning-check-app.vercel.app"],
+    allow_origins=[
+        "http://localhost:3000",  # ← ローカル開発
+        "https://morning-check-app.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
