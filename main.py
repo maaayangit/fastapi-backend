@@ -49,9 +49,13 @@ async def upload_schedule(items: List[ScheduleItem]):
     with Session(engine) as session:
         if not items:
             return {"message": "スケジュールが空です"}
-        target_dates = set(item.date for item in items)
-        for date in target_dates:
-            session.exec(delete(Schedule).where(Schedule.date == date))
+
+        # ✅ user_id + date のペアで限定削除（既存の登録を温存）
+        target_pairs = set((item.date, item.user_id) for item in items)
+        for date, user_id in target_pairs:
+            session.exec(delete(Schedule).where(Schedule.date == date, Schedule.user_id == user_id))
+
+        # ⬇ 追加登録
         for item in items:
             schedule = Schedule(
                 user_id=item.user_id,
@@ -65,6 +69,7 @@ async def upload_schedule(items: List[ScheduleItem]):
             session.add(schedule)
         session.commit()
     return {"message": f"{len(items)} 件のスケジュールを保存しました"}
+
 
 # 勤務表一覧取得
 @app.get("/schedules")
