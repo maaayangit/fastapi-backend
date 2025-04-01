@@ -118,7 +118,7 @@ async def update_expected_login(request: Request):
 @app.post("/log-plan")
 def log_plan_entry(log: PlanLogItem):
     existing = supabase.table("planlog").select("*").eq("user_id", log.user_id).eq("date", log.date).execute().data
-    now_str = datetime.now(JST).strftime("%Y-%m-%dT%H:%M:%S")
+    now_str = datetime.now(JST).isoformat()
 
     if existing:
         supabase.table("planlog").update({
