@@ -53,10 +53,17 @@ async def upload_schedule(items: List[ScheduleItem]):
         return {"message": "スケジュールが空です"}
 
     for item in items:
-        supabase.table("schedule").delete().eq("user_id", item.user_id).eq("date", item.date).execute()
-        supabase.table("schedule").insert(item.dict()).execute()
+        try:
+            print("📝 アップロード対象:", item.dict())
+            # 既存削除＆新規追加
+            supabase.table("schedule").delete().eq("user_id", item.user_id).eq("date", item.date).execute()
+            supabase.table("schedule").insert(item.dict()).execute()
+        except Exception as e:
+            print("❌ エラー発生:", e)
+            return {"message": f"エラーが発生しました: {str(e)}", "item": item.dict()}
 
     return {"message": f"{len(items)} 件のスケジュールを保存しました"}
+
 
 @app.get("/schedules")
 def get_schedules(date: Optional[str] = Query(None)):
