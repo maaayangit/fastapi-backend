@@ -1,0 +1,17 @@
+name: Sync Google Calendar
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"  # 10分おきに実行
+  workflow_dispatch:       # 手動でも実行可能
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Call /sync-calendar endpoint on Render
+        run: |
+          curl -X GET "$RENDER_API_URL"
+        env:
+          RENDER_API_URL: ${{ secrets.RENDER_API_URL }}
