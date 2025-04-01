@@ -1,4 +1,5 @@
 import os
+import json
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -182,8 +183,6 @@ SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 creds = service_account.Credentials.from_service_account_file(
     SERVICE_ACCOUNT_FILE, scopes=SCOPES)
 calendar_service = build('calendar', 'v3', credentials=creds)
-
-import json
 
 # カレンダー設定を外部ファイルから読み込む
 with open("calendar_config.json", "r") as f:
