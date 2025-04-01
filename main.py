@@ -165,3 +165,64 @@ def notify_slack(message: str):
         print("Slack通知失敗:", response.text)
     else:
         print("✅ Slack通知成功！")
+
+#Googleカレンダーとの同期に向けたコード
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+
+# サービスアカウントの認証ファイル
+SERVICE_ACCOUNT_FILE = 'credentials.json'
+SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
+creds = service_account.Credentials.from_service_account_file(
+    SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+calendar_service = build('calendar', 'v3', credentials=creds)
+
+import json
+
+# カレンダー設定を外部ファイルから読み込む
+with open("calendar_config.json", "r") as f:
+    calendar_configs = json.load(f)
+
+
+@app.get("/sync-calendar")
+def sync_calendar_events():
+    now = datetime.utcnow().isoformat() + 'Z'
+    future = (datetime.utcnow() + timedelta(days=45)).isoformat() + 'Z'
+    total_synced = 0
+
+    for config in calendar_configs:
+        calendar_id = config["calendar_id"]
+        group_name = config["group_name"]
+
+        events_result = calendar_service.events().list(
+            calendarId=calendar_id,
+            timeMin=now,
+            timeMax=future,
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute()
+
+        events = events_result.get('items', [])
+        for event in events:
+            event_id = event['id']
+            title = event.get('summary', '')
+            description = event.get('description', '')
+            start = event['start'].get('dateTime') or event['start'].get('date')
+            end = event['end'].get('dateTime') or event['end'].get('date')
+            updated = event.get('updated')
+
+            supabase.table("calendar_events").upsert({
+                "id": event_id,
+                "calendar_id": calendar_id,
+                "group_name": group_name,
+                "title": title,
+                "description": description,
+                "start_time": start,
+                "end_time": end,
+                "updated_at": updated,
+                "synced_at": datetime.utcnow().isoformat()
+            }, on_conflict=["id"]).execute()
+
+            total_synced += 1
+
+    return {"message": f"{total_synced} 件のイベントを同期しました"}
