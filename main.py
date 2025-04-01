@@ -14,6 +14,12 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 
+# 📁 calendar_config.json 読み込み（ここに入れる）
+base_dir = os.path.dirname(os.path.abspath(__file__))
+config_path = os.path.join(base_dir, "calendar_config.json")
+with open(config_path, "r") as f:
+    calendar_configs = json.load(f)
+
 # ⏰ JST（日本時間）
 JST = timezone(timedelta(hours=9))
 
