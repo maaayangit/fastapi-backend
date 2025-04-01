@@ -22,3 +22,8 @@ urllib3==2.3.0
 uvicorn==0.34.0
 supabase
 httpx
+google-api-python-client
+google-auth
+google-auth-httplib2
+google-auth-oauthlib
+python-dotenv
