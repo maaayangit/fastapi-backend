@@ -1,14 +1,14 @@
 from typing import Optional
 from sqlmodel import SQLModel, Field
-from datetime import datetime
+from datetime import date, time, datetime
 
 class Schedule(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int
     username: str
-    date: str
-    expected_login_time: Optional[str] = None
-    login_time: Optional[str] = None
+    date: date  # ← str → date に変更
+    expected_login_time: Optional[time] = None  # ← str → time に変更
+    login_time: Optional[time] = None  # ← str → time に変更
     is_holiday: bool
     work_code: Optional[str] = None
 
@@ -16,6 +16,6 @@ class Schedule(SQLModel, table=True):
 class PlanLog(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int
-    date: str
-    expected_login_time: str
+    date: date  # ← str → date に変更
+    expected_login_time: time  # ← str → time に変更
     registered_at: datetime = Field(default_factory=datetime.utcnow)
