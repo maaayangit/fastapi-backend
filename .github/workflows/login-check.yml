@@ -9,5 +9,8 @@ jobs:
   login-check:
     runs-on: ubuntu-latest
     steps:
+      - name: Show current UTC time
+        run: date -u
+
       - name: Call login-check API
         run: curl -s https://fastapi-backend-dot2.onrender.com/login-check
