@@ -85,25 +85,61 @@ def login_check():
     records = supabase.table("schedule").select("*").eq("date", today).eq("is_holiday", False).execute().data
 
     failed_logins = []
-    for item in records:
-        if not item.get("expected_login_time"):
-            continue
-        expected_dt = datetime.strptime(f"{item['date']} {item['expected_login_time']}", "%Y-%m-%d %H:%M:%S").replace(tzinfo=JST)
 
+    print(f"📅 本日: {today}")
+    print(f"🕒 現在時刻（JST）: {now.strftime('%Y-%m-%d %H:%M:%S')}")
+
+    for item in records:
+        user_id = item["user_id"]
+        username = item["username"]
+        date = item["date"]
+        expected_time = item.get("expected_login_time")
+        login_time = item.get("login_time")
+
+        if not expected_time:
+            continue
+
+        try:
+            expected_dt = datetime.strptime(f"{date} {expected_time}", "%Y-%m-%d %H:%M:%S").replace(tzinfo=JST)
+        except ValueError:
+            # フォールバック（例: HH:MM 形式）
+            expected_dt = datetime.strptime(f"{date} {expected_time}", "%Y-%m-%d %H:%M").replace(tzinfo=JST)
+
+        # 勤務指定チェック
         if item.get("work_code") == "★07A" and expected_dt >= expected_dt.replace(hour=7, minute=0):
-            failed_logins.append({"user_id": item["user_id"], "username": item["username"], "date": item["date"], "reason": f"勤務指定（★07A）より遅い: {item['expected_login_time']}"})
+            failed_logins.append({
+                "user_id": user_id,
+                "username": username,
+                "date": date,
+                "reason": f"勤務指定（★07A）より遅い: {expected_time}"
+            })
             continue
         elif item.get("work_code") == "★11A" and expected_dt >= expected_dt.replace(hour=11, minute=0):
-            failed_logins.append({"user_id": item["user_id"], "username": item["username"], "date": item["date"], "reason": f"勤務指定（★11A）より遅い: {item['expected_login_time']}"})
+            failed_logins.append({
+                "user_id": user_id,
+                "username": username,
+                "date": date,
+                "reason": f"勤務指定（★11A）より遅い: {expected_time}"
+            })
             continue
 
-        if now >= expected_dt and not item.get("login_time"):
-            failed_logins.append({"user_id": item["user_id"], "username": item["username"], "date": item["date"], "reason": f"未ログイン（予定時刻: {item['expected_login_time']}）"})
+        # 未ログインチェック
+        if now >= expected_dt and not login_time:
+            failed_logins.append({
+                "user_id": user_id,
+                "username": username,
+                "date": date,
+                "reason": f"未ログイン（予定時刻: {expected_time}）"
+            })
 
     if failed_logins:
+        print("⚠ 通知対象:", failed_logins)
         notify_slack("\n".join([f"{entry['user_id']}（{entry['date']}）: {entry['reason']}" for entry in failed_logins]))
+    else:
+        print("✅ ログイン漏れはありませんでした")
 
     return {"missed_logins": failed_logins}
+
 
 @app.post("/update-expected-login")
 async def update_expected_login(request: Request):
