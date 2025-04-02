@@ -3,7 +3,7 @@ name: Login Check Every 10 Minutes
 on:
   schedule:
     - cron: '*/10 * * * *'  # UTCで10分おき
-  workflow_dispatch:        # 手動実行もできるように
+  workflow_dispatch:        # 手動実行もOK
 
 jobs:
   login-check:
@@ -13,4 +13,16 @@ jobs:
         run: date -u
 
       - name: Call login-check API
-        run: curl -s https://fastapi-backend-dot2.onrender.com/login-check
+        run: |
+          echo "Calling /login-check"
+          curl -f -s https://fastapi-backend-dot2.onrender.com/login-check
+
+      - name: Notify Slack on failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' --data \
+          '{"text":"⚠️ *Login Check Workflow Failed!*"}' \
+          $SLACK_WEBHOOK_URL
+
