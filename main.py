@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import requests
 from dotenv import load_dotenv
 from supabase import create_client, Client
+from dateutil import parser  # 🔄 JST変換に必要
 
 # 🌍 .env 読み込み
 load_dotenv()
@@ -15,7 +16,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 
-# 📁 calendar_config.json 読み込み（ここに入れる）
+# 📁 calendar_config.json 読み込み
 base_dir = os.path.dirname(os.path.abspath(__file__))
 config_path = os.path.join(base_dir, "calendar_config.json")
 with open(config_path, "r") as f:
@@ -29,18 +30,18 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = FastAPI()
 
-# CORS設定（Reactアプリと連携）
+# CORS設定
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",  # ← ローカル開発
-        "https://morning-check-app.vercel.app"],
+        "http://localhost:3000",
+        "https://morning-check-app.vercel.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Pydantic モデル
 class ScheduleItem(BaseModel):
     user_id: int
     username: str
@@ -60,19 +61,15 @@ class PlanLogItem(BaseModel):
 async def upload_schedule(items: List[ScheduleItem]):
     if not items:
         return {"message": "スケジュールが空です"}
-
     for item in items:
         try:
             print("📝 アップロード対象:", item.dict())
-            # 既存削除＆新規追加
             supabase.table("schedule").delete().eq("user_id", item.user_id).eq("date", item.date).execute()
             supabase.table("schedule").insert(item.dict()).execute()
         except Exception as e:
             print("❌ エラー発生:", e)
             return {"message": f"エラーが発生しました: {str(e)}", "item": item.dict()}
-
     return {"message": f"{len(items)} 件のスケジュールを保存しました"}
-
 
 @app.get("/schedules")
 def get_schedules(date: Optional[str] = Query(None)):
@@ -91,7 +88,6 @@ def login_check():
     for item in records:
         if not item.get("expected_login_time"):
             continue
-        # 「%H:%M:%S」まで対応
         expected_dt = datetime.strptime(f"{item['date']} {item['expected_login_time']}", "%Y-%m-%d %H:%M:%S").replace(tzinfo=JST)
 
         if item.get("work_code") == "★07A" and expected_dt >= expected_dt.replace(hour=7, minute=0):
@@ -132,6 +128,20 @@ async def update_expected_login(request: Request):
 
     return {"message": "出勤予定を更新しました"}
 
+@app.post("/update-login")
+async def update_login_time(request: Request):
+    data = await request.json()
+    user_id = data["user_id"]
+    date = data["date"]
+    login_time = data["login_time"]
+
+    existing = supabase.table("schedule").select("*").eq("user_id", user_id).eq("date", date).execute().data
+    if existing:
+        supabase.table("schedule").update({"login_time": login_time}).eq("user_id", user_id).eq("date", date).execute()
+        return {"message": "出勤時刻を記録しました"}
+    else:
+        return {"message": "スケジュールが見つかりませんでした。先に計画登録してください"}
+
 @app.post("/log-plan")
 def log_plan_entry(log: PlanLogItem):
     existing = supabase.table("planlog").select("*").eq("user_id", log.user_id).eq("date", log.date).execute().data
@@ -165,7 +175,6 @@ def get_work_code(user_id: int, date: str):
         return {"work_code": None}
     return {"work_code": result[0].get("work_code")}
 
-# Slack通知関数
 def notify_slack(message: str):
     if not SLACK_WEBHOOK_URL:
         print("⚠ Slack Webhook URLが未設定です（.env確認）")
@@ -176,21 +185,17 @@ def notify_slack(message: str):
     else:
         print("✅ Slack通知成功！")
 
-#Googleカレンダーとの同期に向けたコード
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-# サービスアカウントの認証ファイル
 SERVICE_ACCOUNT_FILE = 'credentials.json'
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 creds = service_account.Credentials.from_service_account_file(
     SERVICE_ACCOUNT_FILE, scopes=SCOPES)
 calendar_service = build('calendar', 'v3', credentials=creds)
 
-# カレンダー設定を外部ファイルから読み込む
 with open("calendar_config.json", "r") as f:
     calendar_configs = json.load(f)
-
 
 @app.get("/sync-calendar")
 def sync_calendar_events():
@@ -219,14 +224,17 @@ def sync_calendar_events():
             end = event['end'].get('dateTime') or event['end'].get('date')
             updated = event.get('updated')
 
+            start_dt = parser.isoparse(start).astimezone(JST)
+            end_dt = parser.isoparse(end).astimezone(JST)
+
             supabase.table("calendar_events").upsert({
                 "id": event_id,
                 "calendar_id": calendar_id,
                 "group_name": group_name,
                 "title": title,
                 "description": description,
-                "start_time": start,
-                "end_time": end,
+                "start_time": start_dt.isoformat(),
+                "end_time": end_dt.isoformat(),
                 "updated_at": updated,
                 "synced_at": datetime.utcnow().isoformat()
             }, on_conflict=["id"]).execute()
