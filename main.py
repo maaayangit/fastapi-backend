@@ -133,7 +133,9 @@ async def update_login_time(request: Request):
     data = await request.json()
     user_id = data["user_id"]
     date = data["date"]
-    login_time = data["login_time"]
+    
+    # ⏰ 秒まで含めて取得
+    login_time = datetime.now(JST).strftime("%H:%M:%S")
 
     existing = supabase.table("schedule").select("*").eq("user_id", user_id).eq("date", date).execute().data
     if existing:
@@ -141,6 +143,7 @@ async def update_login_time(request: Request):
         return {"message": "出勤時刻を記録しました"}
     else:
         return {"message": "スケジュールが見つかりませんでした。先に計画登録してください"}
+
 
 @app.post("/log-plan")
 def log_plan_entry(log: PlanLogItem):
