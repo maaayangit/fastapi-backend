@@ -167,26 +167,31 @@ async def update_expected_login(request: Request):
 @app.post("/update-login")
 async def update_login_time(request: Request):
     data = await request.json()
-    user_id = int(data["user_id"])
-    date_str = data["date"]
 
     try:
+        user_id = int(data["user_id"])
+        date_str = data["date"]  # "2025-04-04"
         date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
-    except ValueError:
-        return {"message": f"❌ 日付形式が不正です: {date_str}"}
 
-    login_time = datetime.now(JST).strftime("%H:%M:%S")
+        now_jst = datetime.now(JST)
+        login_time_str = now_jst.strftime("%H:%M:%S")  # Supabaseはtime型なので文字列で渡す
+        print(f"🔍 出勤登録: user_id={user_id}, date={date_obj}, login_time={login_time_str}")
 
-    print(f"🔍 出勤処理: user_id={user_id}, date={date_obj}, login_time={login_time}")
+        response = supabase.table("schedule").update({
+            "login_time": login_time_str
+        }).eq("user_id", user_id).eq("date", str(date_obj)).execute()
 
-    response = supabase.table("schedule").update({
-        "login_time": login_time
-    }).eq("user_id", user_id).eq("date", str(date_obj)).execute()
+        if response.data:
+            print("✅ 更新成功:", response.data)
+            return {"message": "✅ 出勤時刻を記録しました"}
+        else:
+            print("⚠ 更新対象なし")
+            return {"message": "⚠ スケジュールが見つかりませんでした。計画登録してください"}
 
-    if response.data:
-        return {"message": "✅ 出勤時刻を記録しました"}
-    else:
-        return {"message": "⚠ スケジュールが見つかりませんでした。計画登録してください"}
+    except Exception as e:
+        print("❌ エラー:", str(e))
+        return {"message": f"❌ エラーが発生しました: {str(e)}"}
+
 
 
 
