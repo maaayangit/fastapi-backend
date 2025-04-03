@@ -167,18 +167,27 @@ async def update_expected_login(request: Request):
 @app.post("/update-login")
 async def update_login_time(request: Request):
     data = await request.json()
-    user_id = data["user_id"]
-    date = data["date"]
-    
-    # ⏰ 秒まで含めて取得
+    user_id = int(data["user_id"])
+    date_str = data["date"]
+
+    try:
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return {"message": f"❌ 日付形式が不正です: {date_str}"}
+
     login_time = datetime.now(JST).strftime("%H:%M:%S")
 
-    existing = supabase.table("schedule").select("*").eq("user_id", user_id).eq("date", date).execute().data
-    if existing:
-        supabase.table("schedule").update({"login_time": login_time}).eq("user_id", user_id).eq("date", date).execute()
-        return {"message": "出勤時刻を記録しました"}
+    print(f"🔍 出勤処理: user_id={user_id}, date={date_obj}, login_time={login_time}")
+
+    response = supabase.table("schedule").update({
+        "login_time": login_time
+    }).eq("user_id", user_id).eq("date", str(date_obj)).execute()
+
+    if response.data:
+        return {"message": "✅ 出勤時刻を記録しました"}
     else:
-        return {"message": "スケジュールが見つかりませんでした。先に計画登録してください"}
+        return {"message": "⚠ スケジュールが見つかりませんでした。計画登録してください"}
+
 
 
 @app.post("/log-plan")
