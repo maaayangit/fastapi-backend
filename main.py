@@ -134,7 +134,6 @@ def login_check():
                     notify_flag = True
                 else:
                     print(f"⏱ 通知終了: user_id={user_id}")
-                    notify_flag = False
 
             if notify_flag:
                 failed_logins.append({
@@ -142,8 +141,6 @@ def login_check():
                     "date": today,
                     "reason": f"未ログイン（予定時刻: {expected_time}）"
                 })
-                else:
-                    print(f"⏱ 通知終了: user_id={user_id}")
         else:
             print(f"🕒 予定時刻未到達: user_id={user_id}, expected={expected_time}")
 
