@@ -88,6 +88,7 @@ def login_check():
     today = now.strftime("%Y-%m-%d")
     failed_logins = []
 
+    # ✅ その日の planlog だけ取得
     records = supabase.table("planlog").select("*").eq("date", today).execute().data
 
     print(f"📅 本日: {today}")
@@ -96,26 +97,28 @@ def login_check():
     for item in records:
         user_id = item["user_id"]
         expected_time = item.get("expected_login_time")
-        login_time = item.get("login_time")  # 今後記録予定
+        login_time = item.get("login_time")
         triggered_at = item.get("alert_triggered_at")
         expire_at = item.get("alert_expire_at")
 
         if not expected_time:
-            continue
+            continue  # 予定がなければスキップ
 
         try:
             expected_dt = datetime.strptime(f"{today} {expected_time}", "%Y-%m-%d %H:%M").replace(tzinfo=JST)
         except ValueError:
-            continue
+            # fallback: 秒まで対応
+            expected_dt = datetime.strptime(f"{today} {expected_time}", "%Y-%m-%d %H:%M:%S").replace(tzinfo=JST)
 
-        # 条件：予定時刻を過ぎた & login_timeがNULL
-        if now >= expected_dt and not login_time:
+        if login_time:
+            continue  # 出勤済ならスキップ
+
+        # ✅ 予定時刻を過ぎていて未出勤
+        if now >= expected_dt:
             if not triggered_at:
-                # 初回成立 → Slack通知 & 時刻記録
-                print(f"🆕 通知開始: user_id={user_id}")
-
-                triggered_at = datetime.now(JST)
-                expire_at = triggered_at + timedelta(seconds=30)
+                # 初回成立
+                triggered_at = now
+                expire_at = triggered_at + timedelta(seconds=NOTIFICATION_WINDOW_SECONDS)
 
                 supabase.table("planlog").update({
                     "alert_triggered_at": triggered_at.isoformat(),
@@ -131,25 +134,25 @@ def login_check():
             elif expire_at:
                 expire_dt = datetime.fromisoformat(expire_at).replace(tzinfo=JST)
                 if now <= expire_dt:
-                    # 30秒以内 → 通知継続
-                    print(f"🔁 通知継続: user_id={user_id}")
+                    # 通知継続期間中
                     failed_logins.append({
                         "user_id": user_id,
                         "date": today,
                         "reason": f"未ログイン（予定時刻: {expected_time}）"
                     })
                 else:
-                    # 30秒経過 → 通知しない
                     print(f"⏱ 通知終了: user_id={user_id}")
-            else:
-                print(f"❓ alert_expire_atが不正: user_id={user_id}")
+        else:
+            print(f"🕒 予定時刻未到達: user_id={user_id}, expected={expected_time}")
 
+    # ✅ 通知実行（整形済み関数を使う）
     if failed_logins:
         notify_slack_formatted(failed_logins)
     else:
         print("✅ ログイン漏れはありませんでした")
 
     return {"missed_logins": failed_logins}
+
 
 @app.post("/update-expected-login")
 async def update_expected_login(request: Request):
