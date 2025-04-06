@@ -114,32 +114,34 @@ def login_check():
             continue  # 出勤済ならスキップ
 
         # ✅ 予定時刻を過ぎていて未出勤
-        if now >= expected_dt:
+        if now >= expected_dt and not login_time:
+            notify_flag = False
+
             if not triggered_at:
-                # 初回成立
+                # 初回成立 → 通知対象にする＋記録
                 triggered_at = now
                 expire_at = triggered_at + timedelta(seconds=NOTIFICATION_WINDOW_SECONDS)
+                notify_flag = True
 
                 supabase.table("planlog").update({
                     "alert_triggered_at": triggered_at.isoformat(),
                     "alert_expire_at": expire_at.isoformat()
                 }).eq("user_id", user_id).eq("date", today).execute()
 
+            elif expire_at:
+                expire_dt = datetime.fromisoformat(expire_at).replace(tzinfo=JST)
+                if now <= expire_dt:
+                    notify_flag = True
+                else:
+                    print(f"⏱ 通知終了: user_id={user_id}")
+                    notify_flag = False
+
+            if notify_flag:
                 failed_logins.append({
                     "user_id": user_id,
                     "date": today,
                     "reason": f"未ログイン（予定時刻: {expected_time}）"
                 })
-
-            elif expire_at:
-                expire_dt = datetime.fromisoformat(expire_at).replace(tzinfo=JST)
-                if now <= expire_dt:
-                    # 通知継続期間中
-                    failed_logins.append({
-                        "user_id": user_id,
-                        "date": today,
-                        "reason": f"未ログイン（予定時刻: {expected_time}）"
-                    })
                 else:
                     print(f"⏱ 通知終了: user_id={user_id}")
         else:
