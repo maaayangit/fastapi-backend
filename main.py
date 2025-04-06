@@ -15,6 +15,7 @@ load_dotenv()
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
+NOTIFICATION_WINDOW_SECONDS = int(os.getenv("NOTIFICATION_WINDOW_SECONDS", 30))  # デフォルト30秒
 
 # 📁 calendar_config.json 読み込み
 base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -82,64 +83,70 @@ def get_schedules(date: Optional[str] = Query(None)):
 def login_check():
     now = datetime.now(JST)
     today = now.strftime("%Y-%m-%d")
-    records = supabase.table("schedule").select("*").eq("date", today).eq("is_holiday", False).execute().data
-
     failed_logins = []
+
+    records = supabase.table("planlog").select("*").eq("date", today).execute().data
 
     print(f"📅 本日: {today}")
     print(f"🕒 現在時刻（JST）: {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
     for item in records:
         user_id = item["user_id"]
-        username = item["username"]
-        date = item["date"]
         expected_time = item.get("expected_login_time")
-        login_time = item.get("login_time")
+        login_time = item.get("login_time")  # 今後記録予定
+        triggered_at = item.get("alert_triggered_at")
+        expire_at = item.get("alert_expire_at")
 
         if not expected_time:
             continue
 
         try:
-            expected_dt = datetime.strptime(f"{date} {expected_time}", "%Y-%m-%d %H:%M:%S").replace(tzinfo=JST)
+            expected_dt = datetime.strptime(f"{today} {expected_time}", "%Y-%m-%d %H:%M").replace(tzinfo=JST)
         except ValueError:
-            # フォールバック（例: HH:MM 形式）
-            expected_dt = datetime.strptime(f"{date} {expected_time}", "%Y-%m-%d %H:%M").replace(tzinfo=JST)
-
-        # 勤務指定チェック
-        if item.get("work_code") == "★07A" and expected_dt >= expected_dt.replace(hour=7, minute=0):
-            failed_logins.append({
-                "user_id": user_id,
-                "username": username,
-                "date": date,
-                "reason": f"勤務指定（★07A）より遅い: {expected_time}"
-            })
-            continue
-        elif item.get("work_code") == "★11A" and expected_dt >= expected_dt.replace(hour=11, minute=0):
-            failed_logins.append({
-                "user_id": user_id,
-                "username": username,
-                "date": date,
-                "reason": f"勤務指定（★11A）より遅い: {expected_time}"
-            })
             continue
 
-        # 未ログインチェック
+        # 条件：予定時刻を過ぎた & login_timeがNULL
         if now >= expected_dt and not login_time:
-            failed_logins.append({
-                "user_id": user_id,
-                "username": username,
-                "date": date,
-                "reason": f"未ログイン（予定時刻: {expected_time}）"
-            })
+            if not triggered_at:
+                # 初回成立 → Slack通知 & 時刻記録
+                print(f"🆕 通知開始: user_id={user_id}")
+
+                triggered_at = datetime.now(JST)
+                expire_at = triggered_at + timedelta(seconds=30)
+
+                supabase.table("planlog").update({
+                    "alert_triggered_at": triggered_at.isoformat(),
+                    "alert_expire_at": expire_at.isoformat()
+                }).eq("user_id", user_id).eq("date", today).execute()
+
+                failed_logins.append({
+                    "user_id": user_id,
+                    "date": today,
+                    "reason": f"未ログイン（予定時刻: {expected_time}）"
+                })
+
+            elif expire_at:
+                expire_dt = datetime.fromisoformat(expire_at).replace(tzinfo=JST)
+                if now <= expire_dt:
+                    # 30秒以内 → 通知継続
+                    print(f"🔁 通知継続: user_id={user_id}")
+                    failed_logins.append({
+                        "user_id": user_id,
+                        "date": today,
+                        "reason": f"未ログイン（予定時刻: {expected_time}）"
+                    })
+                else:
+                    # 30秒経過 → 通知しない
+                    print(f"⏱ 通知終了: user_id={user_id}")
+            else:
+                print(f"❓ alert_expire_atが不正: user_id={user_id}")
 
     if failed_logins:
-        print("⚠ 通知対象:", failed_logins)
-        notify_slack("\n".join([f"{entry['user_id']}（{entry['date']}）: {entry['reason']}" for entry in failed_logins]))
+        notify_slack_formatted(failed_logins)
     else:
         print("✅ ログイン漏れはありませんでした")
 
     return {"missed_logins": failed_logins}
-
 
 @app.post("/update-expected-login")
 async def update_expected_login(request: Request):
@@ -228,18 +235,30 @@ def get_work_code(user_id: int, date: str):
         return {"work_code": None}
     return {"work_code": result[0].get("work_code")}
 
-def notify_slack(message: str):
+def notify_slack_formatted(failed_logins: List[dict]):
     if not SLACK_WEBHOOK_URL:
         print("⚠ Slack Webhook URLが未設定です（.env確認）")
         return
+
+    if not failed_logins:
+        return
+
+    today = datetime.now(JST).strftime("%Y-%m-%d")
+    header = f"📢 *未出勤ユーザー通知 ({today})*\n"
+    message_lines = []
+
+    for entry in failed_logins:
+        line = f"• `{entry['user_id']}` : {entry['reason']}"
+        message_lines.append(line)
+
+    message = header + "\n".join(message_lines)
+
     response = requests.post(SLACK_WEBHOOK_URL, json={"text": message})
     if response.status_code != 200:
         print("Slack通知失敗:", response.text)
     else:
         print("✅ Slack通知成功！")
 
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
 
 SERVICE_ACCOUNT_FILE = 'credentials.json'
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
