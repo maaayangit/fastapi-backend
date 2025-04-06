@@ -117,6 +117,12 @@ def login_check():
         if now >= expected_dt and not login_time:
             notify_flag = False
 
+            print(f"\n🕵️‍♂️ Debug: user_id={user_id}")
+            print(f"       now              = {now}")
+            print(f"       expected_dt      = {expected_dt}")
+            print(f"       triggered_at     = {triggered_at}")
+            print(f"       expire_at        = {expire_at}")
+
             if not triggered_at:
                 # 初回成立 → 通知対象にする＋記録
                 triggered_at = now
@@ -129,11 +135,20 @@ def login_check():
                 }).eq("user_id", user_id).eq("date", today).execute()
 
             elif expire_at:
-                expire_dt = datetime.fromisoformat(expire_at).replace(tzinfo=JST)
-                if now <= expire_dt:
+                # expire_dt を JST に変換（dateutil.parser 推奨）
+                try:
+                    expire_dt = parser.isoparse(expire_at).astimezone(JST)
+                    print(f"       parsed expire_dt = {expire_dt}")
+                except Exception as e:
+                    print(f"⚠ expire_at 変換失敗: {e}")
+                    expire_dt = None
+
+                if expire_dt and now <= expire_dt:
+                    print("🔁 通知継続対象！")
                     notify_flag = True
                 else:
-                    print(f"⏱ 通知終了: user_id={user_id}")
+                    print("⏱ 通知終了: user_id={user_id}")
+                    notify_flag = False
 
             if notify_flag:
                 failed_logins.append({
@@ -143,6 +158,7 @@ def login_check():
                 })
         else:
             print(f"🕒 予定時刻未到達: user_id={user_id}, expected={expected_time}")
+
 
     # ✅ 通知実行（整形済み関数を使う）
     if failed_logins:
