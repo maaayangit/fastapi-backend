@@ -205,6 +205,18 @@ def log_plan_entry(log: PlanLogItem):
         supabase.table("planlog").insert(data).execute()
         return {"message": "出勤予定ログを保存しました", "log": data}
 
+@app.get("/log-plan")
+def get_plan_log(user_id: Optional[int] = None, date: Optional[str] = None):
+    query = supabase.table("planlog").select("*")
+    
+    if user_id is not None:
+        query = query.eq("user_id", user_id)
+    if date is not None:
+        query = query.eq("date", date)
+        
+    result = query.execute().data
+    return {"logs": result}
+
 @app.get("/work-code")
 def get_work_code(user_id: int, date: str):
     result = supabase.table("schedule").select("work_code").eq("user_id", user_id).eq("date", date).execute().data
