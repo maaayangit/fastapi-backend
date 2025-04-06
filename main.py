@@ -113,51 +113,51 @@ def login_check():
         if login_time:
             continue  # 出勤済ならスキップ
 
-        # ✅ 予定時刻を過ぎていて未出勤
-        if now >= expected_dt and not login_time:
+# ✅ 予定時刻を過ぎていて未出勤
+if now >= expected_dt and not login_time:
+    notify_flag = False
+
+    print(f"\n🕵️‍♂️ Debug: user_id={user_id}")
+    print(f"       now              = {now}")
+    print(f"       expected_dt      = {expected_dt}")
+    print(f"       triggered_at     = {triggered_at}")
+    print(f"       expire_at        = {expire_at}")
+
+    if not triggered_at:
+        # 初回成立 → 通知対象にする＋記録
+        triggered_at = now
+        expire_at = triggered_at + timedelta(seconds=NOTIFICATION_WINDOW_SECONDS)
+        notify_flag = True
+
+        supabase.table("planlog").update({
+            "alert_triggered_at": triggered_at.isoformat(),
+            "alert_expire_at": expire_at.isoformat()
+        }).eq("user_id", user_id).eq("date", today).execute()
+
+    elif expire_at:
+        # expire_dt を JST に変換（dateutil.parser 推奨）
+        try:
+            expire_dt = parser.isoparse(expire_at).astimezone(JST)
+            print(f"       parsed expire_dt = {expire_dt}")
+        except Exception as e:
+            print(f"⚠ expire_at 変換失敗: {e}")
+            expire_dt = None
+
+        if expire_dt and now <= expire_dt:
+            print("🔁 通知継続対象！")
+            notify_flag = True
+        else:
+            print("⏱ 通知終了: user_id={user_id}")
             notify_flag = False
 
-            print(f"\n🕵️‍♂️ Debug: user_id={user_id}")
-            print(f"       now              = {now}")
-            print(f"       expected_dt      = {expected_dt}")
-            print(f"       triggered_at     = {triggered_at}")
-            print(f"       expire_at        = {expire_at}")
-
-            if not triggered_at:
-                # 初回成立 → 通知対象にする＋記録
-                triggered_at = now
-                expire_at = triggered_at + timedelta(seconds=NOTIFICATION_WINDOW_SECONDS)
-                notify_flag = True
-
-                supabase.table("planlog").update({
-                    "alert_triggered_at": triggered_at.isoformat(),
-                    "alert_expire_at": expire_at.isoformat()
-                }).eq("user_id", user_id).eq("date", today).execute()
-
-            elif expire_at:
-                # expire_dt を JST に変換（dateutil.parser 推奨）
-                try:
-                    expire_dt = parser.isoparse(expire_at).astimezone(JST)
-                    print(f"       parsed expire_dt = {expire_dt}")
-                except Exception as e:
-                    print(f"⚠ expire_at 変換失敗: {e}")
-                    expire_dt = None
-
-                if expire_dt and now <= expire_dt:
-                    print("🔁 通知継続対象！")
-                    notify_flag = True
-                else:
-                    print("⏱ 通知終了: user_id={user_id}")
-                    notify_flag = False
-
-            if notify_flag:
-                failed_logins.append({
-                    "user_id": user_id,
-                    "date": today,
-                    "reason": f"未ログイン（予定時刻: {expected_time}）"
-                })
-        else:
-            print(f"🕒 予定時刻未到達: user_id={user_id}, expected={expected_time}")
+    if notify_flag:
+        failed_logins.append({
+            "user_id": user_id,
+            "date": today,
+            "reason": f"未ログイン（予定時刻: {expected_time}）"
+        })
+else:
+    print(f"🕒 予定時刻未到達: user_id={user_id}, expected={expected_time}")
 
 
     # ✅ 通知実行（整形済み関数を使う）
@@ -169,28 +169,42 @@ def login_check():
     return {"missed_logins": failed_logins}
 
 
+from datetime import datetime, timezone, timedelta
+
+JST = timezone(timedelta(hours=9))
+
 @app.post("/update-expected-login")
 async def update_expected_login(request: Request):
     data = await request.json()
     user_id = data["user_id"]
-    date = data["date"]
-    expected_login_time = data["expected_login_time"]
+    date = data["date"]  # e.g., "2025-04-08"
+    time_str = data["expected_login_time"]  # e.g., "09:00"
+
+    try:
+        # "2025-04-08 09:00" → datetime に変換
+        dt = datetime.strptime(f"{date} {time_str}", "%Y-%m-%d %H:%M")
+        expected_login_timestamp = dt.replace(tzinfo=JST).isoformat()
+    except ValueError as e:
+        return {"message": f"⛔ 予定時刻の形式が不正です: {e}"}
 
     existing = supabase.table("schedule").select("*").eq("user_id", user_id).eq("date", date).execute().data
     if existing:
-        supabase.table("schedule").update({"expected_login_time": expected_login_time}).eq("user_id", user_id).eq("date", date).execute()
+        supabase.table("schedule").update({
+            "expected_login_time": expected_login_timestamp
+        }).eq("user_id", user_id).eq("date", date).execute()
     else:
         supabase.table("schedule").insert({
             "user_id": user_id,
             "username": "（未設定）",
             "date": date,
-            "expected_login_time": expected_login_time,
+            "expected_login_time": expected_login_timestamp,
             "is_holiday": False,
             "login_time": None,
             "work_code": None
         }).execute()
 
-    return {"message": "出勤予定を更新しました"}
+    return {"message": "✅ 出勤予定を更新しました"}
+
 
 @app.post("/update-login")
 async def update_login_time(request: Request):
@@ -198,16 +212,16 @@ async def update_login_time(request: Request):
 
     try:
         user_id = int(data["user_id"])
-        date_str = data["date"]  # 形式: "2025-04-06"
+        date_str = data["date"]  # "2025-04-06"
         date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
 
         now_jst = datetime.now(JST)
-        login_time_str = now_jst.strftime("%H:%M:%S")  # Supabaseはtime型なので文字列で渡す
-        print(f"🔍 出勤登録: user_id={user_id}, date={date_obj}, login_time={login_time_str}")
+        login_timestamp = now_jst.isoformat()  # フル形式で保存（例: 2025-04-06T17:09:00+09:00）
 
-        # ✅ planlog の login_time を更新
+        print(f"🔍 出勤登録: user_id={user_id}, date={date_obj}, login_time={login_timestamp}")
+
         response = supabase.table("planlog").update({
-            "login_time": login_time_str
+            "login_time": login_timestamp
         }).eq("user_id", user_id).eq("date", str(date_obj)).execute()
 
         if response.data:
@@ -220,6 +234,7 @@ async def update_login_time(request: Request):
     except Exception as e:
         print("❌ エラー:", str(e))
         return {"message": f"❌ エラーが発生しました: {str(e)}"}
+
 
 @app.post("/log-plan")
 def log_plan_entry(log: PlanLogItem):
@@ -238,14 +253,41 @@ def log_plan_entry(log: PlanLogItem):
         supabase.table("planlog").insert(data).execute()
         return {"message": "出勤予定ログを保存しました", "log": log}
 
-@app.get("/log-plan")
-def get_plan_logs(user_id: Optional[int] = None, date: Optional[str] = None):
-    query = supabase.table("planlog").select("*")
-    if user_id:
-        query = query.eq("user_id", user_id)
-    if date:
-        query = query.eq("date", date)
-    return query.execute().data
+@app.post("/log-plan")
+def log_plan_entry(log: PlanLogItem):
+    try:
+        # 日付と時刻を結合してタイムスタンプ化
+        dt = datetime.strptime(f"{log.date} {log.expected_login_time}", "%Y-%m-%d %H:%M")
+        expected_login_timestamp = dt.replace(tzinfo=JST).isoformat()
+    except ValueError as e:
+        return {"message": f"⛔ 予定時刻の形式が不正です: {e}"}
+
+    now_str = datetime.now(JST).isoformat()
+
+    existing = supabase.table("planlog").select("*").eq("user_id", log.user_id).eq("date", log.date).execute().data
+
+    if existing:
+        supabase.table("planlog").update({
+            "expected_login_time": expected_login_timestamp,
+            "registered_at": now_str
+        }).eq("user_id", log.user_id).eq("date", log.date).execute()
+        return {
+            "message": "既存の出勤予定ログを更新しました",
+            "log": {
+                **log.dict(),
+                "expected_login_time": expected_login_timestamp,
+                "registered_at": now_str,
+            }
+        }
+    else:
+        data = log.dict()
+        data["expected_login_time"] = expected_login_timestamp
+        data["registered_at"] = now_str
+        supabase.table("planlog").insert(data).execute()
+        return {
+            "message": "出勤予定ログを保存しました",
+            "log": data
+        }
 
 @app.get("/work-code")
 def get_work_code(user_id: int, date: str):
