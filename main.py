@@ -180,36 +180,28 @@ async def update_login_time(request: Request):
 
     try:
         user_id = int(data["user_id"])
-        date_str = data["date"]  # "2025-04-04"
+        date_str = data["date"]  # 形式: "2025-04-06"
         date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
 
         now_jst = datetime.now(JST)
         login_time_str = now_jst.strftime("%H:%M:%S")  # Supabaseはtime型なので文字列で渡す
         print(f"🔍 出勤登録: user_id={user_id}, date={date_obj}, login_time={login_time_str}")
 
-        response = supabase.table("schedule").update({
-            "login_time": login_time_str
-        }).eq("user_id", user_id).eq("date", str(date_obj)).execute()
-
-
-        # 🔽 planlog にも出勤記録を追加
-        supabase.table("planlog").update({
+        # ✅ planlog の login_time を更新
+        response = supabase.table("planlog").update({
             "login_time": login_time_str
         }).eq("user_id", user_id).eq("date", str(date_obj)).execute()
 
         if response.data:
-            print("✅ 更新成功:", response.data)
+            print("✅ planlog 更新成功:", response.data)
             return {"message": "✅ 出勤時刻を記録しました"}
         else:
-            print("⚠ 更新対象なし")
-            return {"message": "⚠ スケジュールが見つかりませんでした。計画登録してください"}
+            print("⚠ planlog に該当データなし")
+            return {"message": "⚠ 出勤予定ログが見つかりません。計画登録してください"}
 
     except Exception as e:
         print("❌ エラー:", str(e))
         return {"message": f"❌ エラーが発生しました: {str(e)}"}
-
-
-
 
 @app.post("/log-plan")
 def log_plan_entry(log: PlanLogItem):
