@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 from dateutil import parser  # 🔄 JST変換に必要
 from google.oauth2 import service_account
+from googleapiclient.discovery import build
+
 
 # 🌍 .env 読み込み
 load_dotenv()
