@@ -252,7 +252,9 @@ def notify_slack_formatted(failed_logins: List[dict]):
     message_lines = []
 
     for entry in failed_logins:
-        line = f"• `{entry['user_id']}` : {entry['reason']}"
+        # ⏰ 現在時刻を通知に追加（ユニーク化）
+        now_str = datetime.now(JST).strftime("%H:%M:%S")
+        line = f"• `{entry['user_id']}` : {entry['reason']}（{now_str}）"
         message_lines.append(line)
 
     message = header + "\n".join(message_lines)
