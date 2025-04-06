@@ -129,31 +129,53 @@ def login_check():
 
 @app.post("/update-expected-login")
 async def update_expected_login(request: Request):
-    data = await request.json()
-    user_id = data["user_id"]
-    date = data["date"]
-    time_str = data["expected_login_time"]
     try:
-        dt = datetime.strptime(f"{date} {time_str}", "%Y-%m-%d %H:%M")
-        expected_login_timestamp = dt.replace(tzinfo=JST).isoformat()
-    except ValueError as e:
-        return {"message": f"⛔ 予定時刻の形式が不正です: {e}"}
+        data = await request.json()
+        print("📥 リクエスト内容:", data)
 
-    existing = supabase.table("schedule").select("*").eq("user_id", user_id).eq("date", date).execute().data
-    if existing:
-        supabase.table("schedule").update({"expected_login_time": expected_login_timestamp}).eq("user_id", user_id).eq("date", date).execute()
-    else:
-        supabase.table("schedule").insert({
-            "user_id": user_id,
-            "username": "（未設定）",
-            "date": date,
-            "expected_login_time": expected_login_timestamp,
-            "is_holiday": False,
-            "login_time": None,
-            "work_code": None
-        }).execute()
+        user_id = data["user_id"]
+        date = data["date"]
+        time_str = data["expected_login_time"]
 
-    return {"message": "✅ 出勤予定を更新しました"}
+        print(f"👤 user_id: {user_id}, 📅 date: {date}, ⏰ time_str: {time_str}")
+
+        # 時刻パース
+        try:
+            dt = datetime.strptime(f"{date} {time_str}", "%Y-%m-%d %H:%M")
+            expected_login_timestamp = dt.replace(tzinfo=JST).isoformat()
+            print("🕒 JST形式の予定時刻:", expected_login_timestamp)
+        except ValueError as e:
+            print("⛔ 時刻変換エラー:", e)
+            return {"message": f"⛔ 予定時刻の形式が不正です: {e}"}
+
+        # 既存データの確認
+        existing = supabase.table("schedule").select("*").eq("user_id", user_id).eq("date", date).execute().data
+        print("🔍 既存データ:", existing)
+
+        if existing:
+            print("✏️ 更新処理を実行")
+            supabase.table("schedule").update({
+                "expected_login_time": expected_login_timestamp
+            }).eq("user_id", user_id).eq("date", date).execute()
+        else:
+            print("🆕 新規挿入処理を実行")
+            supabase.table("schedule").insert({
+                "user_id": user_id,
+                "username": "（未設定）",
+                "date": date,
+                "expected_login_time": expected_login_timestamp,
+                "is_holiday": False,
+                "login_time": None,
+                "work_code": None
+            }).execute()
+
+        print("✅ 登録完了")
+        return {"message": "✅ 出勤予定を更新しました"}
+
+    except Exception as e:
+        print("❌ エラー発生:", str(e))
+        return {"message": f"❌ エラーが発生しました: {str(e)}"}
+
 
 @app.post("/update-login")
 async def update_login_time(request: Request):
