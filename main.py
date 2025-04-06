@@ -91,9 +91,11 @@ def login_check():
             continue
 
         try:
-            expected_dt = datetime.strptime(f"{today} {expected_time}", "%Y-%m-%d %H:%M").replace(tzinfo=JST)
-        except ValueError:
-            expected_dt = datetime.strptime(f"{today} {expected_time}", "%Y-%m-%d %H:%M:%S").replace(tzinfo=JST)
+            # ISO 8601 形式の expected_time を正しくパース
+            expected_dt = parser.isoparse(expected_time).astimezone(JST)
+        except Exception as e:
+            print(f"⚠ expected_time parse error: {e}")
+            continue
 
         if login_time:
             continue
@@ -111,7 +113,8 @@ def login_check():
         elif expire_at:
             try:
                 expire_dt = parser.isoparse(expire_at).astimezone(JST)
-            except Exception:
+            except Exception as e:
+                print(f"⚠ expire_at parse error: {e}")
                 expire_dt = None
             if expire_dt and now <= expire_dt:
                 notify_flag = True
@@ -120,12 +123,14 @@ def login_check():
             failed_logins.append({
                 "user_id": user_id,
                 "date": today,
-                "reason": f"未ログイン（予定時刻: {expected_time}）"
+                "reason": f"未ログイン（予定時刻: {expected_dt.strftime('%H:%M')}）"
             })
 
     if failed_logins:
         notify_slack_formatted(failed_logins)
+
     return {"missed_logins": failed_logins}
+
 
 @app.post("/update-expected-login")
 async def update_expected_login(request: Request):
