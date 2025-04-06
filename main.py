@@ -1,17 +1,17 @@
 import os
 import json
+import requests
+import uuid
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, timedelta, timezone
-import requests
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from dateutil import parser  # 🔄 JST変換に必要
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-
 
 # 🌍 .env 読み込み
 load_dotenv()
@@ -254,7 +254,8 @@ def notify_slack_formatted(failed_logins: List[dict]):
     for entry in failed_logins:
         # ⏰ 現在時刻を通知に追加（ユニーク化）
         now_str = datetime.now(JST).strftime("%H:%M:%S")
-        line = f"• `{entry['user_id']}` : {entry['reason']}（{now_str}）"
+        uniq = str(uuid.uuid4())[:6]
+        line = f"• `{entry['user_id']}` : {entry['reason']}（{now_str} / ID:{uniq}）"
         message_lines.append(line)
 
     message = header + "\n".join(message_lines)
