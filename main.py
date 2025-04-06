@@ -18,29 +18,21 @@ load_dotenv()
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
-NOTIFICATION_WINDOW_SECONDS = int(os.getenv("NOTIFICATION_WINDOW_SECONDS", 30))  # デフォルト30秒
+NOTIFICATION_WINDOW_SECONDS = int(os.getenv("NOTIFICATION_WINDOW_SECONDS", 30))
 
-# 📁 calendar_config.json 読み込み
+JST = timezone(timedelta(hours=9))
+
 base_dir = os.path.dirname(os.path.abspath(__file__))
 config_path = os.path.join(base_dir, "calendar_config.json")
 with open(config_path, "r") as f:
     calendar_configs = json.load(f)
 
-# ⏰ JST（日本時間）
-JST = timezone(timedelta(hours=9))
-
-# Supabase クライアント
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
 app = FastAPI()
 
-# CORS設定
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://morning-check-app.vercel.app"
-    ],
+    allow_origins=["http://localhost:3000", "https://morning-check-app.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -67,11 +59,9 @@ async def upload_schedule(items: List[ScheduleItem]):
         return {"message": "スケジュールが空です"}
     for item in items:
         try:
-            print("📝 アップロード対象:", item.dict())
             supabase.table("schedule").delete().eq("user_id", item.user_id).eq("date", item.date).execute()
             supabase.table("schedule").insert(item.dict()).execute()
         except Exception as e:
-            print("❌ エラー発生:", e)
             return {"message": f"エラーが発生しました: {str(e)}", "item": item.dict()}
     return {"message": f"{len(items)} 件のスケジュールを保存しました"}
 
@@ -89,9 +79,6 @@ def login_check():
     failed_logins = []
 
     records = supabase.table("planlog").select("*").eq("date", today).execute().data
-
-    print(f"📅 本日: {today}")
-    print(f"🕒 現在時刻（JST）: {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
     for item in records:
         user_id = item["user_id"]
@@ -111,81 +98,42 @@ def login_check():
         if login_time:
             continue
 
-        # 🔧 仮でpassを入れる（処理未実装のときも構文エラーを防ぐ）
-        pass
+        notify_flag = False
 
-    return {"missed_logins": failed_logins}
-
-
-# ✅ 予定時刻を過ぎていて未出勤
-if now >= expected_dt and not login_time:
-    notify_flag = False
-
-    print(f"\n🕵️‍♂️ Debug: user_id={user_id}")
-    print(f"       now              = {now}")
-    print(f"       expected_dt      = {expected_dt}")
-    print(f"       triggered_at     = {triggered_at}")
-    print(f"       expire_at        = {expire_at}")
-
-    if not triggered_at:
-        # 初回成立 → 通知対象にする＋記録
-        triggered_at = now
-        expire_at = triggered_at + timedelta(seconds=NOTIFICATION_WINDOW_SECONDS)
-        notify_flag = True
-
-        supabase.table("planlog").update({
-            "alert_triggered_at": triggered_at.isoformat(),
-            "alert_expire_at": expire_at.isoformat()
-        }).eq("user_id", user_id).eq("date", today).execute()
-
-    elif expire_at:
-        # expire_dt を JST に変換（dateutil.parser 推奨）
-        try:
-            expire_dt = parser.isoparse(expire_at).astimezone(JST)
-            print(f"       parsed expire_dt = {expire_dt}")
-        except Exception as e:
-            print(f"⚠ expire_at 変換失敗: {e}")
-            expire_dt = None
-
-        if expire_dt and now <= expire_dt:
-            print("🔁 通知継続対象！")
+        if not triggered_at:
+            triggered_at = now
+            expire_at = triggered_at + timedelta(seconds=NOTIFICATION_WINDOW_SECONDS)
             notify_flag = True
-        else:
-            print("⏱ 通知終了: user_id={user_id}")
-            notify_flag = False
+            supabase.table("planlog").update({
+                "alert_triggered_at": triggered_at.isoformat(),
+                "alert_expire_at": expire_at.isoformat()
+            }).eq("user_id", user_id).eq("date", today).execute()
+        elif expire_at:
+            try:
+                expire_dt = parser.isoparse(expire_at).astimezone(JST)
+            except Exception:
+                expire_dt = None
+            if expire_dt and now <= expire_dt:
+                notify_flag = True
 
-    if notify_flag:
-        failed_logins.append({
-            "user_id": user_id,
-            "date": today,
-            "reason": f"未ログイン（予定時刻: {expected_time}）"
-        })
-else:
-    print(f"🕒 予定時刻未到達: user_id={user_id}, expected={expected_time}")
+        if notify_flag:
+            failed_logins.append({
+                "user_id": user_id,
+                "date": today,
+                "reason": f"未ログイン（予定時刻: {expected_time}）"
+            })
 
-
-    # ✅ 通知実行（整形済み関数を使う）
     if failed_logins:
         notify_slack_formatted(failed_logins)
-    else:
-        print("✅ ログイン漏れはありませんでした")
-
     return {"missed_logins": failed_logins}
-
-
-from datetime import datetime, timezone, timedelta
-
-JST = timezone(timedelta(hours=9))
 
 @app.post("/update-expected-login")
 async def update_expected_login(request: Request):
     data = await request.json()
     user_id = data["user_id"]
-    date = data["date"]  # e.g., "2025-04-08"
-    time_str = data["expected_login_time"]  # e.g., "09:00"
-
+    date = data["date"]
+    time_str = data["expected_login_time"]
     try:
-        # "2025-04-08 09:00" → datetime に変換
         dt = datetime.strptime(f"{date} {time_str}", "%Y-%m-%d %H:%M")
         expected_login_timestamp = dt.replace(tzinfo=JST).isoformat()
     except ValueError as e:
@@ -193,9 +141,7 @@ async def update_expected_login(request: Request):
 
     existing = supabase.table("schedule").select("*").eq("user_id", user_id).eq("date", date).execute().data
     if existing:
-        supabase.table("schedule").update({
-            "expected_login_time": expected_login_timestamp
-        }).eq("user_id", user_id).eq("date", date).execute()
+        supabase.table("schedule").update({"expected_login_time": expected_login_timestamp}).eq("user_id", user_id).eq("date", date).execute()
     else:
         supabase.table("schedule").insert({
             "user_id": user_id,
@@ -209,65 +155,34 @@ async def update_expected_login(request: Request):
 
     return {"message": "✅ 出勤予定を更新しました"}
 
-
 @app.post("/update-login")
 async def update_login_time(request: Request):
     data = await request.json()
-
     try:
         user_id = int(data["user_id"])
-        date_str = data["date"]  # "2025-04-06"
+        date_str = data["date"]
         date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
-
         now_jst = datetime.now(JST)
-        login_timestamp = now_jst.isoformat()  # フル形式で保存（例: 2025-04-06T17:09:00+09:00）
+        login_timestamp = now_jst.isoformat()
 
-        print(f"🔍 出勤登録: user_id={user_id}, date={date_obj}, login_time={login_timestamp}")
-
-        response = supabase.table("planlog").update({
-            "login_time": login_timestamp
-        }).eq("user_id", user_id).eq("date", str(date_obj)).execute()
+        response = supabase.table("planlog").update({"login_time": login_timestamp}).eq("user_id", user_id).eq("date", str(date_obj)).execute()
 
         if response.data:
-            print("✅ planlog 更新成功:", response.data)
             return {"message": "✅ 出勤時刻を記録しました"}
         else:
-            print("⚠ planlog に該当データなし")
             return {"message": "⚠ 出勤予定ログが見つかりません。計画登録してください"}
-
     except Exception as e:
-        print("❌ エラー:", str(e))
         return {"message": f"❌ エラーが発生しました: {str(e)}"}
-
-
-@app.post("/log-plan")
-def log_plan_entry(log: PlanLogItem):
-    existing = supabase.table("planlog").select("*").eq("user_id", log.user_id).eq("date", log.date).execute().data
-    now_str = datetime.now(JST).isoformat()
-
-    if existing:
-        supabase.table("planlog").update({
-            "expected_login_time": log.expected_login_time,
-            "registered_at": now_str
-        }).eq("user_id", log.user_id).eq("date", log.date).execute()
-        return {"message": "既存の出勤予定ログを更新しました", "log": log}
-    else:
-        data = log.dict()
-        data["registered_at"] = now_str
-        supabase.table("planlog").insert(data).execute()
-        return {"message": "出勤予定ログを保存しました", "log": log}
 
 @app.post("/log-plan")
 def log_plan_entry(log: PlanLogItem):
     try:
-        # 日付と時刻を結合してタイムスタンプ化
         dt = datetime.strptime(f"{log.date} {log.expected_login_time}", "%Y-%m-%d %H:%M")
         expected_login_timestamp = dt.replace(tzinfo=JST).isoformat()
     except ValueError as e:
         return {"message": f"⛔ 予定時刻の形式が不正です: {e}"}
 
     now_str = datetime.now(JST).isoformat()
-
     existing = supabase.table("planlog").select("*").eq("user_id", log.user_id).eq("date", log.date).execute().data
 
     if existing:
@@ -288,10 +203,7 @@ def log_plan_entry(log: PlanLogItem):
         data["expected_login_time"] = expected_login_timestamp
         data["registered_at"] = now_str
         supabase.table("planlog").insert(data).execute()
-        return {
-            "message": "出勤予定ログを保存しました",
-            "log": data
-        }
+        return {"message": "出勤予定ログを保存しました", "log": data}
 
 @app.get("/work-code")
 def get_work_code(user_id: int, date: str):
@@ -302,40 +214,24 @@ def get_work_code(user_id: int, date: str):
 
 def notify_slack_formatted(failed_logins: List[dict]):
     if not SLACK_WEBHOOK_URL:
-        print("⚠ Slack Webhook URLが未設定です（.env確認）")
         return
-
     if not failed_logins:
         return
-
     today = datetime.now(JST).strftime("%Y-%m-%d")
     header = f"📢 *未出勤ユーザー通知 ({today})*\n"
     message_lines = []
-
     for entry in failed_logins:
-        # ⏰ 現在時刻を通知に追加（ユニーク化）
         now_str = datetime.now(JST).strftime("%H:%M:%S")
         uniq = str(uuid.uuid4())[:6]
         line = f"• `{entry['user_id']}` : {entry['reason']}（{now_str} / ID:{uniq}）"
         message_lines.append(line)
-
     message = header + "\n".join(message_lines)
-
-    response = requests.post(SLACK_WEBHOOK_URL, json={"text": message})
-    if response.status_code != 200:
-        print("Slack通知失敗:", response.text)
-    else:
-        print("✅ Slack通知成功！")
-
+    requests.post(SLACK_WEBHOOK_URL, json={"text": message})
 
 SERVICE_ACCOUNT_FILE = 'credentials.json'
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
-creds = service_account.Credentials.from_service_account_file(
-    SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+creds = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
 calendar_service = build('calendar', 'v3', credentials=creds)
-
-with open("calendar_config.json", "r") as f:
-    calendar_configs = json.load(f)
 
 @app.get("/sync-calendar")
 def sync_calendar_events():
@@ -346,7 +242,6 @@ def sync_calendar_events():
     for config in calendar_configs:
         calendar_id = config["calendar_id"]
         group_name = config["group_name"]
-
         events_result = calendar_service.events().list(
             calendarId=calendar_id,
             timeMin=now,
@@ -354,7 +249,6 @@ def sync_calendar_events():
             singleEvents=True,
             orderBy='startTime'
         ).execute()
-
         events = events_result.get('items', [])
         for event in events:
             event_id = event['id']
@@ -363,10 +257,8 @@ def sync_calendar_events():
             start = event['start'].get('dateTime') or event['start'].get('date')
             end = event['end'].get('dateTime') or event['end'].get('date')
             updated = event.get('updated')
-
             start_dt = parser.isoparse(start).astimezone(JST)
             end_dt = parser.isoparse(end).astimezone(JST)
-
             supabase.table("calendar_events").upsert({
                 "id": event_id,
                 "calendar_id": calendar_id,
@@ -378,7 +270,5 @@ def sync_calendar_events():
                 "updated_at": updated,
                 "synced_at": datetime.utcnow().isoformat()
             }, on_conflict=["id"]).execute()
-
             total_synced += 1
-
     return {"message": f"{total_synced} 件のイベントを同期しました"}
