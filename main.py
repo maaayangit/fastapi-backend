@@ -191,6 +191,12 @@ async def update_login_time(request: Request):
             "login_time": login_time_str
         }).eq("user_id", user_id).eq("date", str(date_obj)).execute()
 
+
+        # 🔽 planlog にも出勤記録を追加
+        supabase.table("planlog").update({
+            "login_time": login_time_str
+        }).eq("user_id", user_id).eq("date", str(date_obj)).execute()
+
         if response.data:
             print("✅ 更新成功:", response.data)
             return {"message": "✅ 出勤時刻を記録しました"}
