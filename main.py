@@ -112,6 +112,8 @@ def login_check():
 
         if login_time:
             continue  # 出勤済ならスキップ
+    
+    return {"missed_logins": failed_logins}
 
 # ✅ 予定時刻を過ぎていて未出勤
 if now >= expected_dt and not login_time:
