@@ -88,7 +88,6 @@ def login_check():
     today = now.strftime("%Y-%m-%d")
     failed_logins = []
 
-    # ✅ その日の planlog だけ取得
     records = supabase.table("planlog").select("*").eq("date", today).execute().data
 
     print(f"📅 本日: {today}")
@@ -102,18 +101,21 @@ def login_check():
         expire_at = item.get("alert_expire_at")
 
         if not expected_time:
-            continue  # 予定がなければスキップ
+            continue
 
         try:
             expected_dt = datetime.strptime(f"{today} {expected_time}", "%Y-%m-%d %H:%M").replace(tzinfo=JST)
         except ValueError:
-            # fallback: 秒まで対応
             expected_dt = datetime.strptime(f"{today} {expected_time}", "%Y-%m-%d %H:%M:%S").replace(tzinfo=JST)
 
         if login_time:
-            continue  # 出勤済ならスキップ
-    
+            continue
+
+        # 🔧 仮でpassを入れる（処理未実装のときも構文エラーを防ぐ）
+        pass
+
     return {"missed_logins": failed_logins}
+
 
 # ✅ 予定時刻を過ぎていて未出勤
 if now >= expected_dt and not login_time:
