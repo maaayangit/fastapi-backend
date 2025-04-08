@@ -251,21 +251,38 @@ def get_work_code(user_id: int, date: str):
         return {"work_code": None}
     return {"work_code": result[0].get("work_code")}
 
+from dateutil import parser
+
 def notify_slack_formatted(failed_logins: List[dict]):
     if not SLACK_WEBHOOK_URL:
         return
     if not failed_logins:
         return
+
     today = datetime.now(JST).strftime("%Y-%m-%d")
     header = f"📢 *未出勤ユーザー通知 ({today})*\n"
     message_lines = []
+
     for entry in failed_logins:
         now_str = datetime.now(JST).strftime("%H:%M:%S")
         uniq = str(uuid.uuid4())[:6]
-        line = f"• `{entry['user_id']}` : {entry['reason']}（{now_str} / ID:{uniq}）"
+        reason = entry['reason']
+
+        # 📌 JSTに変換する処理
+        if "予定時刻: " in reason:
+            try:
+                raw_time = reason.split("予定時刻: ")[1].rstrip("）")
+                jst_time = parser.isoparse(raw_time).astimezone(JST).strftime("%H:%M")
+                reason = f"未ログイン（予定時刻: {jst_time}）"
+            except Exception as e:
+                print("⚠ JST変換失敗:", e)
+
+        line = f"• `{entry['user_id']}` : {reason}（{now_str} / ID:{uniq}）"
         message_lines.append(line)
+
     message = header + "\n".join(message_lines)
     requests.post(SLACK_WEBHOOK_URL, json={"text": message})
+
 
 SERVICE_ACCOUNT_FILE = 'credentials.json'
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
